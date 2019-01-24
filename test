@@ -1,0 +1,103 @@
+#Declarations
+$testPath = 'd:\Script'
+$csvInputFile = 'D:\Script\Input.csv'
+$OutFilePath = 'd:\Script\SID_Removal_Report.csv' 
+$inputFile = Import-Csv -Path $csvInputFile
+$counter = 0
+$Results = @()
+if (Test-Path $OutFilePath){
+	Remove-Item $OutFilePath -Force
+	New-item $OutFilePath -ItemType File | out-null
+}
+#Variables
+$VerbosePreference = 'Continue'
+#function starts here
+Function Remove-SID
+{
+	[CmdletBinding()]
+    [Alias()]
+    [OutputType([int])]
+    Param
+    (
+        # Path of the folder
+        $Path,
+
+        # Account Details
+        $SID
+    )
+	
+	# Specifies a path to one or more locations.
+	$error.clear()
+  		$myacl = Get-Acl -Path $Path
+   		foreach($acc in $myacl.access )
+   		{
+			$Accvalue = $acc.IdentityReference.Value
+   			if($Accvalue -match $SID)
+   			{
+			
+				$myAcl.RemoveAccessRule($acc) |Out-Null
+				$varACL= Set-Acl -Path $Path -AclObject $myacl  -ErrorAction Stop
+ 			    Write-Verbose "Removing SID: $Accvalue  from the path $Path "
+				 Return $varACL 
+			   }
+			   
+   		}
+}
+
+foreach ($item in $InputFile){
+	try {
+		if (!(Test-Path $testPath)){
+			New-Item $testPath -ItemType Directory -Force -ea SilentlyContinue
+		}
+		$AccountPath = "\\"+($item.name)+'\'+($item.share)
+		$VarUser = $item.Name
+		$myaclson= (Get-Acl -Path $AccountPath).AccessToString
+		$myaclson= $myaclson.Split("`n")
+		foreach($myaclon in $myaclson){
+			if($myaclon -match $item.user){
+				$counter += 1
+				Write-verbose "Account : $counter "
+				Write-Verbose "Initializing Removal of ACL $($item.User)"
+				Remove-SID  -Path $AccountPath -Sid $item.User -ErrorAction Stop 
+					Write-Verbose  "Removed  $($item.user)"
+					$Result = @()
+					$proc = @{
+						CIName   = $VarUser
+						Share    = $item.Share
+						Location = $item.path
+						User     = $item.user
+						Result   = "Success"
+					}
+					$Result = [PSCustomObject]$proc
+					$Result | Export-Csv -Path $OutFilePath -NoTypeInformation -Append
+			}
+		}
+		
+	}
+	catch {
+
+		$proc = @{
+			CIName   = $VarUser
+			Share    = $item.Share
+			Location = $item.Path
+			User     = $item.user
+			Result   = "Failed"
+		}
+		$Result = [PSCustomObject] $proc
+		$Result | Export-Csv -Path $OutFilePath -NoTypeInformation -Append
+	}
+}
+if($counter -eq 0){
+	Write-Output "No Matching Record(s) Found"
+}
+
+elseif ($counter -eq 1) {
+
+	Write-Output "Summary: $counter Orphaned Account is Removed"
+}
+else{
+
+	Write-Output "Summary: $counter Orphaned Accounts are Removed"
+}
+Write-Verbose "Script Executed sucessfully"
+$result = $null
